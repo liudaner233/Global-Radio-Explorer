@@ -1,0 +1,5 @@
+{
+  "name": "Global Radio Explorer",
+  "description": "An interactive 3D globe to discover and stream radio stations from every corner of the world.",
+  "requestFramePermissions": []
+}
