@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Play, Pause, Volume2, VolumeX, Radio, ExternalLink, Globe as GlobeIcon } from 'lucide-react';
 import { RadioStation } from '../types/radio';
-import { cn } from '../lib/utils';
 
 interface PlayerProps {
   station: RadioStation | null;
@@ -12,18 +11,25 @@ interface PlayerProps {
 const Player: React.FC<PlayerProps> = ({ station, isPlaying, onTogglePlay }) => {
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     try {
       if (!audioRef.current) {
         audioRef.current = new Audio();
+        audioRef.current.preload = 'none';
+        audioRef.current.crossOrigin = 'anonymous';
       }
 
       if (station) {
+        setPlaybackError(null);
         audioRef.current.src = station.url_resolved || station.url;
         if (isPlaying) {
-          audioRef.current.play().catch(err => console.error("Playback failed", err));
+          audioRef.current.play().catch(err => {
+            console.error("Playback failed", err);
+            setPlaybackError('该电台流暂时无法播放，请尝试其他电台或点击右侧外链直接打开。');
+          });
         }
       } else {
         audioRef.current.pause();
@@ -36,7 +42,11 @@ const Player: React.FC<PlayerProps> = ({ station, isPlaying, onTogglePlay }) => 
   useEffect(() => {
     if (audioRef.current) {
       if (isPlaying) {
-        audioRef.current.play().catch(err => console.error("Playback failed", err));
+        setPlaybackError(null);
+        audioRef.current.play().catch(err => {
+          console.error("Playback failed", err);
+          setPlaybackError('浏览器拦截了自动播放，请再次点击播放按钮。');
+        });
       } else {
         audioRef.current.pause();
       }
@@ -96,7 +106,7 @@ const Player: React.FC<PlayerProps> = ({ station, isPlaying, onTogglePlay }) => 
             />
           </div>
           <a
-            href={station.homepage}
+            href={station.homepage || station.url_resolved || station.url}
             target="_blank"
             rel="noopener noreferrer"
             className="p-2 text-white/70 hover:text-white transition-colors"
@@ -106,6 +116,11 @@ const Player: React.FC<PlayerProps> = ({ station, isPlaying, onTogglePlay }) => 
           </a>
         </div>
       </div>
+      {playbackError && (
+        <p className="max-w-7xl mx-auto mt-3 text-xs text-amber-300">
+          {playbackError}
+        </p>
+      )}
     </div>
   );
 };

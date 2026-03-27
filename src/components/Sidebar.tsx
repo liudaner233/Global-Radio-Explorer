@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Radio, Globe, MapPin, ChevronRight, Loader2, Music } from 'lucide-react';
+import { Search, Radio, Globe, ChevronRight, Loader2, Music } from 'lucide-react';
 import { RadioStation } from '../types/radio';
 import { cn } from '../lib/utils';
 
 interface SidebarProps {
-  onStationSelect: (station: RadioStation) => void;
-  currentStation: RadioStation | null;
+  onSelectStation: (station: RadioStation) => void;
+  selectedStation: RadioStation | null;
+  onStationsUpdate?: (stations: RadioStation[]) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ onStationSelect, currentStation }) => {
+const Sidebar: React.FC<SidebarProps> = ({ onSelectStation, selectedStation, onStationsUpdate }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [stations, setStations] = useState<RadioStation[]>([]);
   const [loading, setLoading] = useState(false);
@@ -19,16 +20,17 @@ const Sidebar: React.FC<SidebarProps> = ({ onStationSelect, currentStation }) =>
     try {
       let url = 'https://de1.api.radio-browser.info/json/stations/';
       if (isTrending) {
-        url += 'topclick/50';
+        url = 'https://de1.api.radio-browser.info/json/stations/search?limit=100&hidebroken=true&order=clickcount&reverse=true&is_https=true';
       } else if (query) {
-        url += `byname/${encodeURIComponent(query)}`;
+        url = `https://de1.api.radio-browser.info/json/stations/search?name=${encodeURIComponent(query)}&limit=100&hidebroken=true&order=clickcount&reverse=true&is_https=true`;
       } else {
-        url += 'lastclick/50';
+        url = 'https://de1.api.radio-browser.info/json/stations/search?limit=100&hidebroken=true&order=lastchecktime&reverse=true&is_https=true';
       }
       
       const response = await fetch(url);
       const data = await response.json();
       setStations(data);
+      onStationsUpdate?.(data);
     } catch (error) {
       console.error('Error fetching stations:', error);
     } finally {
@@ -107,10 +109,10 @@ const Sidebar: React.FC<SidebarProps> = ({ onStationSelect, currentStation }) =>
             {stations.map((station) => (
               <button
                 key={station.stationuuid}
-                onClick={() => onStationSelect(station)}
+                onClick={() => onSelectStation(station)}
                 className={cn(
                   "w-full flex items-center gap-3 p-3 rounded-xl transition-all group text-left",
-                  currentStation?.stationuuid === station.stationuuid
+                  selectedStation?.stationuuid === station.stationuuid
                     ? "bg-blue-500/20 border border-blue-500/30"
                     : "hover:bg-white/5 border border-transparent"
                 )}
@@ -125,7 +127,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onStationSelect, currentStation }) =>
                 <div className="flex-1 min-w-0">
                   <h4 className={cn(
                     "text-sm font-medium truncate",
-                    currentStation?.stationuuid === station.stationuuid ? "text-blue-400" : "text-white"
+                    selectedStation?.stationuuid === station.stationuuid ? "text-blue-400" : "text-white"
                   )}>
                     {station.name}
                   </h4>
@@ -144,7 +146,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onStationSelect, currentStation }) =>
                 </div>
                 <ChevronRight className={cn(
                   "w-4 h-4 transition-transform",
-                  currentStation?.stationuuid === station.stationuuid ? "text-blue-400 translate-x-0" : "text-white/10 -translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0"
+                  selectedStation?.stationuuid === station.stationuuid ? "text-blue-400 translate-x-0" : "text-white/10 -translate-x-2 opacity-0 group-hover:opacity-100 group-hover:translate-x-0"
                 )} />
               </button>
             ))}
