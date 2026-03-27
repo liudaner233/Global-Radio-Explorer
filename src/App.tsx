@@ -67,7 +67,7 @@ export default function App() {
     const fetchInitialStations = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch('https://de1.api.radio-browser.info/json/stations/lastclick/50');
+        const response = await fetch('https://de1.api.radio-browser.info/json/stations/search?limit=200&hidebroken=true&order=clickcount&reverse=true&is_https=true');
         if (!response.ok) throw new Error('Failed to fetch stations');
         const data = await response.json();
         setStations(data);

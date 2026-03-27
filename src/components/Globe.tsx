@@ -79,7 +79,7 @@ const Globe: React.FC<GlobeProps> = ({ stations, onSelectStation, selectedStatio
         pointColor={() => '#60a5fa'}
         pointAltitude={0.01}
         pointRadius={0.2}
-        pointsMerge={true}
+        pointsMerge={false}
         
         onPointClick={(point: any) => onSelectStation(point as RadioStation)}
         
