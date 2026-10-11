@@ -1,0 +1,334 @@
+{
+  "testedAt": "2026-10-03T13:57:40+0800",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.10",
+  "status": {
+    "state": "ready",
+    "name": "facebook/pe-av-large",
+    "sampleRate": 48000,
+    "maxSeconds": 6,
+    "precision": "float32",
+    "threads": 6,
+    "busy": false,
+    "confidenceMeaning": "Relative prompt similarity, not a calibrated emotion probability."
+  },
+  "results": [
+    {
+      "id": "speech",
+      "file": "jfk.wav",
+      "url": "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav",
+      "source": "https://huggingface.co/datasets/Xenova/transformers.js-docs/tree/main",
+      "attribution": "John F. Kennedy speech, Hugging Face Transformers.js documentation example.",
+      "offset": 0,
+      "expectedKind": "speech",
+      "gain": 1,
+      "sourceSha256": "aa81c2552465568567e670f3823117e633900d16bd6202346a72f3c8464c74c8",
+      "seconds": 6.0,
+      "rms": 0.159566,
+      "responses": [
+        {
+          "kind": "speech",
+          "character": "neutral",
+          "confidence": 0.5439934177320972,
+          "kindConfidence": 0.5439934177320972,
+          "characterConfidence": 0.5947200252894098,
+          "scores": {
+            "kind": {
+              "music": 0.1278667447143163,
+              "speech": 0.5439934177320972,
+              "ambient": 0.16741662007821398,
+              "unknown": 0.16072321747537247
+            },
+            "character": {
+              "intense": 0.16932285079753168,
+              "soft": 0.23595712391305845,
+              "neutral": 0.5947200252894098
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 4326.21
+        },
+        {
+          "kind": "speech",
+          "character": "neutral",
+          "confidence": 0.5439934177320972,
+          "kindConfidence": 0.5439934177320972,
+          "characterConfidence": 0.5947200252894098,
+          "scores": {
+            "kind": {
+              "music": 0.1278667447143163,
+              "speech": 0.5439934177320972,
+              "ambient": 0.16741662007821398,
+              "unknown": 0.16072321747537247
+            },
+            "character": {
+              "intense": 0.16932285079753168,
+              "soft": 0.23595712391305845,
+              "neutral": 0.5947200252894098
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3516.22
+        }
+      ],
+      "medianElapsedMs": 3921.215,
+      "maxConcurrentStatusMs": 6.36,
+      "kindMatchesReference": true
+    },
+    {
+      "id": "rain",
+      "file": "rain.wav",
+      "url": "https://raw.githubusercontent.com/karolpiczak/ESC-50/master/audio/1-17367-A-10.wav",
+      "source": "https://github.com/karolpiczak/ESC-50",
+      "attribution": "ESC-50, rain class 10, Karol J. Piczak; dataset CC BY-NC 3.0, evaluation only.",
+      "offset": 0,
+      "expectedKind": "ambient",
+      "gain": 1,
+      "sourceSha256": "d732acd2e0c7c40405968010f49f250740c86998fc416eff2ed5330fc8c89dea",
+      "seconds": 5.0,
+      "rms": 0.087753,
+      "responses": [
+        {
+          "kind": "ambient",
+          "character": "neutral",
+          "confidence": 0.6467693005761107,
+          "kindConfidence": 0.6467693005761107,
+          "characterConfidence": 0.3949225644384003,
+          "scores": {
+            "kind": {
+              "music": 0.15896554178575142,
+              "speech": 0.06042748827017789,
+              "ambient": 0.6467693005761107,
+              "unknown": 0.13383766936795993
+            },
+            "character": {
+              "intense": 0.3949225644384003,
+              "soft": 0.3695102105011093,
+              "neutral": 0.23556722506049038
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3098.63
+        },
+        {
+          "kind": "ambient",
+          "character": "neutral",
+          "confidence": 0.6467693005761107,
+          "kindConfidence": 0.6467693005761107,
+          "characterConfidence": 0.3949225644384003,
+          "scores": {
+            "kind": {
+              "music": 0.15896554178575142,
+              "speech": 0.06042748827017789,
+              "ambient": 0.6467693005761107,
+              "unknown": 0.13383766936795993
+            },
+            "character": {
+              "intense": 0.3949225644384003,
+              "soft": 0.3695102105011093,
+              "neutral": 0.23556722506049038
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3053.73
+        }
+      ],
+      "medianElapsedMs": 3076.1800000000003,
+      "maxConcurrentStatusMs": 7.08,
+      "kindMatchesReference": true
+    },
+    {
+      "id": "gentle-piano",
+      "file": "piano.ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/b/be/Clair_de_lune_%28Claude_Debussy%29_Suite_bergamasque.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:Clair_de_lune_(Claude_Debussy)_Suite_bergamasque.ogg",
+      "attribution": "Claude Debussy, Clair de lune; Laurens Goedhart piano, 2011; recording CC BY 3.0, composer public domain. Mono/resampled 6-second crop from 12 s.",
+      "offset": 12,
+      "expectedKind": "music",
+      "expectedCharacter": "soft",
+      "gain": 1,
+      "sourceSha256": "2f7a1e833f4e2408d9d1b893131863d790ba75cd5fbcf81292dc5ed6f25918fe",
+      "seconds": 6.0,
+      "rms": 0.017304,
+      "responses": [
+        {
+          "kind": "music",
+          "character": "soft",
+          "confidence": 0.5354101473092329,
+          "kindConfidence": 0.5354101473092329,
+          "characterConfidence": 0.6245641195220727,
+          "scores": {
+            "kind": {
+              "music": 0.5354101473092329,
+              "speech": 0.1226415377588762,
+              "ambient": 0.2377022425143015,
+              "unknown": 0.10424607241758953
+            },
+            "character": {
+              "intense": 0.04280682041855012,
+              "soft": 0.6245641195220727,
+              "neutral": 0.3326290600593772
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3494.87
+        },
+        {
+          "kind": "music",
+          "character": "soft",
+          "confidence": 0.5354101473092329,
+          "kindConfidence": 0.5354101473092329,
+          "characterConfidence": 0.6245641195220727,
+          "scores": {
+            "kind": {
+              "music": 0.5354101473092329,
+              "speech": 0.1226415377588762,
+              "ambient": 0.2377022425143015,
+              "unknown": 0.10424607241758953
+            },
+            "character": {
+              "intense": 0.04280682041855012,
+              "soft": 0.6245641195220727,
+              "neutral": 0.3326290600593772
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3620.09
+        }
+      ],
+      "medianElapsedMs": 3557.48,
+      "maxConcurrentStatusMs": 13.33,
+      "kindMatchesReference": true,
+      "characterMatchesReference": true
+    },
+    {
+      "id": "metal",
+      "file": "metal.ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/2/2c/The_Ancient_Traveller_sample.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:The_Ancient_Traveller_sample.ogg",
+      "attribution": "Thorvi, The Ancient Traveller sample, 2009; uploader released recording into public domain. Mono/resampled 6-second crop from 6 s.",
+      "offset": 6,
+      "expectedKind": "music",
+      "expectedCharacter": "intense",
+      "gain": 1,
+      "sourceSha256": "12124cd194e95a61fd770ef56af07ee3e980062e5651a3c09377afcc8b3fafac",
+      "seconds": 6.0,
+      "rms": 0.197015,
+      "responses": [
+        {
+          "kind": "music",
+          "character": "intense",
+          "confidence": 0.7972735872766886,
+          "kindConfidence": 0.7972735872766886,
+          "characterConfidence": 0.9524586099249929,
+          "scores": {
+            "kind": {
+              "music": 0.7972735872766886,
+              "speech": 0.012217000093446836,
+              "ambient": 0.08566107549745326,
+              "unknown": 0.10484833713241128
+            },
+            "character": {
+              "intense": 0.9524586099249929,
+              "soft": 0.006392017863897635,
+              "neutral": 0.0411493722111094
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3656.86
+        },
+        {
+          "kind": "music",
+          "character": "intense",
+          "confidence": 0.7972735872766886,
+          "kindConfidence": 0.7972735872766886,
+          "characterConfidence": 0.9524586099249929,
+          "scores": {
+            "kind": {
+              "music": 0.7972735872766886,
+              "speech": 0.012217000093446836,
+              "ambient": 0.08566107549745326,
+              "unknown": 0.10484833713241128
+            },
+            "character": {
+              "intense": 0.9524586099249929,
+              "soft": 0.006392017863897635,
+              "neutral": 0.0411493722111094
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3562.58
+        }
+      ],
+      "medianElapsedMs": 3609.7200000000003,
+      "maxConcurrentStatusMs": 5.74,
+      "kindMatchesReference": true,
+      "characterMatchesReference": true
+    },
+    {
+      "id": "metal",
+      "file": "metal.ogg",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/2/2c/The_Ancient_Traveller_sample.ogg",
+      "source": "https://commons.wikimedia.org/wiki/File:The_Ancient_Traveller_sample.ogg",
+      "attribution": "Thorvi, The Ancient Traveller sample, 2009; uploader released recording into public domain. Mono/resampled 6-second crop from 6 s.",
+      "offset": 6,
+      "expectedKind": "music",
+      "expectedCharacter": "intense",
+      "gain": 0.2,
+      "sourceSha256": "12124cd194e95a61fd770ef56af07ee3e980062e5651a3c09377afcc8b3fafac",
+      "seconds": 6.0,
+      "rms": 0.039403,
+      "responses": [
+        {
+          "kind": "music",
+          "character": "intense",
+          "confidence": 0.6634087770421638,
+          "kindConfidence": 0.6634087770421638,
+          "characterConfidence": 0.8534708480740455,
+          "scores": {
+            "kind": {
+              "music": 0.6634087770421638,
+              "speech": 0.029940590532192703,
+              "ambient": 0.164042933124146,
+              "unknown": 0.14260769930149747
+            },
+            "character": {
+              "intense": 0.8534708480740455,
+              "soft": 0.026014001268154615,
+              "neutral": 0.12051515065779984
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3453.13
+        },
+        {
+          "kind": "music",
+          "character": "intense",
+          "confidence": 0.6634087770421638,
+          "kindConfidence": 0.6634087770421638,
+          "characterConfidence": 0.8534708480740455,
+          "scores": {
+            "kind": {
+              "music": 0.6634087770421638,
+              "speech": 0.029940590532192703,
+              "ambient": 0.164042933124146,
+              "unknown": 0.14260769930149747
+            },
+            "character": {
+              "intense": 0.8534708480740455,
+              "soft": 0.026014001268154615,
+              "neutral": 0.12051515065779984
+            }
+          },
+          "model": "facebook/pe-av-large",
+          "elapsedMs": 3456.13
+        }
+      ],
+      "medianElapsedMs": 3454.63,
+      "maxConcurrentStatusMs": 7.19,
+      "kindMatchesReference": true,
+      "characterMatchesReference": true
+    }
+  ],
+  "interpretation": "These are real recordings and illustrative checks, not a held-out emotion benchmark. Scores are relative prompt similarities."
+}

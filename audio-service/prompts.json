@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "kind": {
+    "music": [
+      "Music is playing, with melody, musical instruments and rhythm.",
+      "A song with singing vocals and musical accompaniment.",
+      "An instrumental musical recording with no speaking."
+    ],
+    "speech": [
+      "A person is speaking conversationally on a radio programme.",
+      "People are talking in an interview or a spoken discussion.",
+      "A news presenter speaks with clear words and no singing."
+    ],
+    "ambient": [
+      "Natural environmental sounds, water, rain, wind or birds, with no music or speech.",
+      "An outdoor ambience recording of distant traffic and everyday environmental sounds.",
+      "A continuous soundscape of nature with no talking or musical instruments."
+    ],
+    "unknown": [
+      "Static, hiss, radio interference and unstructured noise.",
+      "An almost silent recording without clear music, speech or environmental events.",
+      "An indistinct, distorted recording with no recognizable content."
+    ]
+  },
+  "character": {
+    "intense": [
+      "High energy, powerful, fast music with forceful percussion and a driving rhythm.",
+      "Intense energetic music, heavy distorted guitars, strong drums and bass.",
+      "Lively dance music with a strong punchy beat and energetic electronic sounds.",
+      "Forceful excited shouting, energetic delivery and an intense noisy atmosphere."
+    ],
+    "soft": [
+      "Soft gentle calming music with a mellow, flowing melody and a relaxed atmosphere.",
+      "A quiet soothing piano or acoustic instrumental, delicate and peaceful.",
+      "A calm gentle ambience with soft water or rain sounds.",
+      "A person speaks gently in a soft relaxed voice, without shouting."
+    ],
+    "neutral": [
+      "Moderate energy music with a steady rhythm and a balanced sound.",
+      "Ordinary conversational speech with a natural pace and a neutral tone.",
+      "An everyday ambient soundscape, neither particularly intense nor gentle."
+    ]
+  }
+}

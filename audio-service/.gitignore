@@ -1,0 +1,6 @@
+.venv/
+models/
+__pycache__/
+.pytest_cache/
+validation-audio/
+*.log

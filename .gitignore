@@ -2,7 +2,14 @@ node_modules/
 build/
 dist/
 coverage/
+audio-service/.venv/
+audio-service/.models/
+audio-service/models/
+audio-service/__pycache__/
+audio-service/tests/__pycache__/
+audio-service/.pytest_cache/
 .DS_Store
 *.log
+*.lnk
 .env*
 !.env.example
