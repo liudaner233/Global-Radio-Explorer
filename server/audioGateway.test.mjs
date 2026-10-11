@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { once } from 'node:events';
-import { Readable, Writable } from 'node:stream';
+import { Readable, Writable, getDefaultHighWaterMark, setDefaultHighWaterMark } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import test from 'node:test';
 import {
@@ -755,39 +755,69 @@ test('rejects an unsolicited nonzero metadata range and revalidates a reopened r
   assert.deepEqual(contacted, ['radio.example.com', 'radio.example.com']);
 });
 
-test('the ICY transform propagates backpressure rather than consuming the entire source', async () => {
-  let generated = 0;
-  let writeEntered;
-  let releaseWrite;
-  const entered = new Promise((resolveEntered) => {
-    writeEntered = resolveEntered;
-  });
-  const source = new Readable({
-    highWaterMark: 4096,
-    read() {
-      if (generated++ >= 512) this.push(null);
-      else this.push(Buffer.concat([Buffer.alloc(4096, 42), Buffer.from([0])]));
-    },
-  });
-  const writing = pipeline(
-    source,
-    createIcyAudioStripper(4096),
-    new Writable({
-      highWaterMark: 4096,
-      write(_chunk, _encoding, callback) {
+for (const transformCapacity of [16 * 1024, 64 * 1024]) {
+  test(`the ICY transform propagates backpressure with ${transformCapacity / 1024} KiB buffers`, async (t) => {
+    const audioBlockSize = 4096;
+    const encodedBlockSize = audioBlockSize + 1;
+    const totalBlocks = 512;
+    const originalCapacity = getDefaultHighWaterMark(false);
+    let stripper;
+    try {
+      setDefaultHighWaterMark(false, transformCapacity);
+      stripper = createIcyAudioStripper(audioBlockSize);
+    } finally {
+      setDefaultHighWaterMark(false, originalCapacity);
+    }
+    let generated = 0;
+    let bytesWritten = 0;
+    let writeEntered;
+    let releaseWrite;
+    const entered = new Promise((resolveEntered) => {
+      writeEntered = resolveEntered;
+    });
+    const source = new Readable({
+      highWaterMark: audioBlockSize,
+      read() {
+        if (generated >= totalBlocks) this.push(null);
+        else {
+          generated++;
+          this.push(Buffer.concat([Buffer.alloc(audioBlockSize, 42), Buffer.from([0])]));
+        }
+      },
+    });
+    const destination = new Writable({
+      highWaterMark: audioBlockSize,
+      write(chunk, _encoding, callback) {
+        bytesWritten += chunk.length;
         if (!releaseWrite) {
           releaseWrite = callback;
           writeEntered();
         } else callback();
       },
-    })
-  );
-  await entered;
-  await new Promise((resolveWait) => setTimeout(resolveWait, 20));
-  assert.ok(generated < 32, `Read ${generated} blocks while the destination was blocked.`);
-  releaseWrite();
-  await writing;
-});
+    });
+    t.after(() => {
+      if (!destination.writableFinished && !destination.destroyed) releaseWrite?.();
+    });
+    const bufferedBlockLimit =
+      Math.ceil(source.readableHighWaterMark / encodedBlockSize) +
+      Math.ceil(stripper.writableHighWaterMark / encodedBlockSize) +
+      Math.ceil(stripper.readableHighWaterMark / audioBlockSize) +
+      Math.ceil(destination.writableHighWaterMark / audioBlockSize) +
+      1;
+    const writing = pipeline(source, stripper, destination);
+    await entered;
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+    assert.ok(
+      generated <= bufferedBlockLimit,
+      `Read ${generated} blocks with capacity for ${bufferedBlockLimit} while the destination was blocked.`
+    );
+    assert.ok(generated < totalBlocks);
+    releaseWrite();
+    await writing;
+    assert.equal(bytesWritten, audioBlockSize * totalBlocks);
+    assert.equal(generated, totalBlocks);
+  });
+}
 
 test('metadata stream cancellation destroys the source and releases its connection allowance', async (t) => {
   let activeSource;

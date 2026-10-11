@@ -1,5 +1,7 @@
 # Global Radio Explorer · 全球电台探索者
 
+[![CI](https://github.com/liudaner233/Global-Radio-Explorer/actions/workflows/ci.yml/badge.svg)](https://github.com/liudaner233/Global-Radio-Explorer/actions/workflows/ci.yml)
+
 在地球上寻找电台，听见不同地方的声音。
 
 一个基于 React、TypeScript 和 Three.js 的全球电台播放器。支持交互式 3D 地球、近景地图、实时昼夜、分类发现和本地收藏；宽幅音浪由实际播放的音频驱动，还可选装本地音频模型，让音乐、人声与环境声呈现不同的视觉表现。
@@ -127,6 +129,8 @@ POST /api/audio/analyze
 | `npm run audio:setup`        | 准备可选模型环境与权重                           |
 | `npm run audio:serve`        | 单独启动本地模型服务                             |
 | `npm run create-shortcut`    | Windows 桌面快捷方式，可启动本地站点并打开浏览器 |
+
+GitHub Actions 在 Ubuntu 和 Windows 上运行前端、网关和构建检查，并独立测试 Python 服务协议。自动检查不下载模型权重。
 
 技术栈：React 19、TypeScript、Vite 7、Tailwind CSS 4、react-globe.gl / Three.js、Canvas / Web Audio API、Motion、Lucide。可选服务使用 Python、PyTorch 和 Transformers；模型不进入前端包。
 
