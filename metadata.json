@@ -1,5 +1,5 @@
 {
   "name": "Global Radio Explorer",
-  "description": "Explore global radio on an interactive 3D globe with live day and night, genre filters, listening journeys, and local AI audio visualization.",
+  "description": "Explore live radio worldwide on an interactive 3D globe, with day/night lighting, genre discovery, favorites, listening journeys, and responsive audio visualization.",
   "requestFramePermissions": []
 }

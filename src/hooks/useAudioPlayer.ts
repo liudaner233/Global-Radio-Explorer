@@ -46,9 +46,10 @@ export function useAudioPlayer({
   );
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [audioGeneration, setAudioGeneration] = useState(0);
-  const directSourceRef = useRef<{ key: string; expiresAt: number } | null>(null);
+  const directSourceRef = useRef<{ key: string; expiresAt: number; cors: boolean } | null>(null);
   const retryPendingRef = useRef(false);
   const [isRetryingAnalysis, setIsRetryingAnalysis] = useState(false);
+  const [playedAudio] = useState(() => new WeakSet<HTMLAudioElement>());
   const callbacksRef = useRef({ onPlaybackError, onPlayingChange, onListeningProgress, station });
   const streamUrl = station?.url_resolved || station?.url || '';
   const stationIdentity = getStationIdentity(station);
@@ -61,11 +62,22 @@ export function useAudioPlayer({
     const audio = new Audio();
     audio.preload = 'none';
     if (streamUrl) {
-      audio.src =
+      const fallback =
         directSourceRef.current?.key === `${stationIdentity}|${streamUrl}` &&
         directSourceRef.current.expiresAt > Date.now()
-          ? streamUrl
-          : getAudioPlaybackSource(callbacksRef.current.station);
+          ? directSourceRef.current
+          : null;
+      const source = fallback ? streamUrl : getAudioPlaybackSource(callbacksRef.current.station);
+      try {
+        if (
+          new URL(source, window.location.href).origin !== window.location.origin &&
+          fallback?.cors !== false
+        )
+          audio.crossOrigin = 'anonymous';
+      } catch {
+        audio.crossOrigin = null;
+      }
+      audio.src = source;
     }
     audioRef.current = audio;
     setPlaybackError(null);
@@ -144,7 +156,12 @@ export function useAudioPlayer({
     };
     const handleFailure = (message: string) => {
       if (!isCurrentAttempt() || failed || recovering) return;
-      if (usingProxy && message === STREAM_UNAVAILABLE_MESSAGE && isPlaying) {
+      if (
+        (usingProxy || audio.crossOrigin === 'anonymous') &&
+        message === STREAM_UNAVAILABLE_MESSAGE &&
+        isPlaying
+      ) {
+        const cors = usingProxy;
         usingProxy = false;
         recovering = true;
         clearTimeout(startupTimer);
@@ -154,6 +171,7 @@ export function useAudioPlayer({
         directSourceRef.current = {
           key: `${stationIdentity}|${streamUrl}`,
           expiresAt: Date.now() + 30000,
+          cors,
         };
         setAudioGeneration((current) => current + 1);
         return;
@@ -214,10 +232,10 @@ export function useAudioPlayer({
       } else {
         try {
           if (audio.error) audio.load();
-          if (usingProxy)
+          if (usingProxy || audio.crossOrigin === 'anonymous')
             startupTimer = window.setTimeout(
               () => handleFailure(STREAM_UNAVAILABLE_MESSAGE),
-              22000
+              usingProxy ? 22000 : 10000
             );
           void audio
             .play()
@@ -228,10 +246,17 @@ export function useAudioPlayer({
         } catch (error) {
           handleFailure(getPlaybackErrorMessage(error));
         }
+        playedAudio.add(audio);
       }
     } else {
       audio.pause();
       setPlaybackStatus((status) => (status === 'error' ? status : 'paused'));
+      if (usingProxy && playedAudio.has(audio)) {
+        playedAudio.delete(audio);
+        audio.removeAttribute('src');
+        audio.load();
+        setAudioGeneration((current) => current + 1);
+      }
     }
 
     return () => {
@@ -250,7 +275,7 @@ export function useAudioPlayer({
       audio.removeEventListener('volumechange', handleVolumeChange);
       audio.pause();
     };
-  }, [isPlaying, streamUrl, stationIdentity, audioGeneration]);
+  }, [isPlaying, streamUrl, stationIdentity, audioGeneration, playedAudio]);
 
   const retryAudioAnalysis = async () => {
     if (retryPendingRef.current || !streamUrl) return;

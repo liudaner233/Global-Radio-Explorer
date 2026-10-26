@@ -48,7 +48,7 @@ export default function CountryPanel({
         <div className="flex shrink-0 items-start justify-between border-b border-white/10 px-4 py-3">
           <div>
             <p className="text-[10px] uppercase tracking-[0.2em] text-blue-300/80">Country</p>
-            <h3 className="mt-1 text-sm font-semibold text-white">{name || 'Unknown Region'}</h3>
+            <h3 className="country-title mt-1 text-sm text-white">{name || 'Unknown Region'}</h3>
             {!loading && !error && (
               <p className="mt-1 text-xs text-white/50">
                 {stations.length} stations loaded · Most popular first

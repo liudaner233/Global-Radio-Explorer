@@ -27,6 +27,12 @@ body {
   background: linear-gradient(145deg, #26364b, #182333);
 }
 
+.country-title {
+  font-family: Georgia, 'Palatino Linotype', serif;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+}
+
 button,
 a,
 input {

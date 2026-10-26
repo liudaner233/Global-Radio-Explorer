@@ -121,9 +121,9 @@ describe('station signal scene', () => {
     vi.unstubAllGlobals();
   });
 
-  function advanceFrames(count: number) {
+  function advanceFrames(count: number, step = 50) {
     for (let index = 0; index < count; index++) {
-      time += 50;
+      time += step;
       const pending = [...frames.values()];
       frames.clear();
       pending.forEach((callback) => callback(time));
@@ -226,6 +226,123 @@ describe('station signal scene', () => {
     expect(discovery.getX(2)).toBe(northDiscovered);
     expect(discovery.getX(0)).toBeLessThan(1000000);
     expect(discovery.getX(1)).toBeLessThan(1000000);
+  });
+
+  it('reuses scan projections until the camera changes', () => {
+    signals = createStationSignals(globe, stations, vi.fn());
+    const project = vi.spyOn(Vector3.prototype, 'applyMatrix4');
+    advanceFrames(1);
+    expect(project).toHaveBeenCalledTimes(stations.length + 1);
+    advanceFrames(5);
+    expect(project).toHaveBeenCalledTimes(stations.length + 1);
+
+    camera.position.set(100, 0, 250);
+    camera.lookAt(0, 0, 0);
+    camera.updateMatrixWorld();
+    controls.dispatchEvent({ type: 'change' });
+    advanceFrames(1);
+    expect(project.mock.calls.length).toBeGreaterThan(stations.length + 1);
+    const projected = project.mock.calls.length;
+    advanceFrames(2);
+    expect(project).toHaveBeenCalledTimes(projected);
+  });
+
+  it('uploads discovery attributes only when another signal is revealed', () => {
+    signals = createStationSignals(globe, stations, vi.fn());
+    const discovered = getPoints().geometry.getAttribute('discovered') as BufferAttribute;
+    advanceFrames(1);
+    const firstVersion = discovered.version;
+    advanceFrames(5);
+    expect(discovered.version).toBe(firstVersion);
+    advanceFrames(8);
+    expect(discovered.version).toBeGreaterThan(firstVersion);
+  });
+
+  it('projects a 6000-station catalog once during a stationary scan', () => {
+    const catalog = Array.from({ length: 6000 }, (_, index) =>
+      createStation({
+        stationuuid: `station-${index}`,
+        geo_lat: (index % 170) - 85,
+        geo_long: (index % 360) - 180,
+      })
+    );
+    signals = createStationSignals(globe, catalog, vi.fn());
+    const project = vi.spyOn(Vector3.prototype, 'applyMatrix4');
+    advanceFrames(40);
+    expect(project).toHaveBeenCalledTimes(catalog.length + 1);
+    expect(getSweep().visible).toBe(false);
+    expect(
+      Array.from(getPoints().geometry.getAttribute('discovered').array).every(
+        (value) => value < 1000000
+      )
+    ).toBe(true);
+    advanceFrames(30);
+    expect(project).toHaveBeenCalledTimes(catalog.length + 1);
+  });
+
+  it('limits settled pulse uniform updates to 30 Hz while retaining continuous animation', () => {
+    signals = createStationSignals(globe, stations, vi.fn());
+    advanceFrames(40);
+    const clock = getPoints().material.uniforms.time;
+    let updates = 0;
+    for (let index = 0; index < 60; index++) {
+      const previous = clock.value;
+      advanceFrames(1, 1000 / 60);
+      if (clock.value !== previous) updates++;
+    }
+    expect(updates).toBeGreaterThanOrEqual(20);
+    expect(updates).toBeLessThanOrEqual(30);
+    expect(frames.size).toBe(1);
+  });
+
+  it('reuses point geometry when station metadata changes without moving locations', () => {
+    signals = createStationSignals(globe, stations, vi.fn());
+    const points = getPoints();
+    const geometry = points.geometry;
+    const positions = geometry.getAttribute('position') as BufferAttribute;
+    const colors = geometry.getAttribute('signalColor') as BufferAttribute;
+    const positionVersion = positions.version;
+    const colorVersion = colors.version;
+    advanceFrames(5);
+    const discovered = Array.from(geometry.getAttribute('discovered').array);
+    signals.updateStations(stations.map((station) => ({ ...station, votes: station.votes + 1 })));
+    expect(points.geometry).toBe(geometry);
+    expect(positions.version).toBe(positionVersion);
+    expect(colors.version).toBe(colorVersion);
+    expect(Array.from(geometry.getAttribute('discovered').array)).toEqual(discovered);
+
+    signals.updateStations(stations.map((station) => ({ ...station, tags: 'pop' })));
+    expect(points.geometry).toBe(geometry);
+    expect(colors.version).toBeGreaterThan(colorVersion);
+    expectColor(points, 0, getStationGenre('pop').color);
+  });
+
+  it('stops all animation callbacks while hidden or when reduced motion is requested', () => {
+    signals = createStationSignals(globe, stations, vi.fn());
+    advanceFrames(5);
+    const progress = getSweep().material.uniforms.progress.value;
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(frames.size).toBe(0);
+    advanceFrames(10);
+    expect(getSweep().material.uniforms.progress.value).toBe(progress);
+
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(frames.size).toBe(1);
+    Object.defineProperty(motion, 'matches', { value: true, configurable: true });
+    motion.dispatchEvent(new Event('change'));
+    expect(frames.size).toBe(0);
+    expect(getSweep().visible).toBe(false);
+    expect(getPoints().material.uniforms.still.value).toBe(1);
+    expect(
+      Array.from(getPoints().geometry.getAttribute('discovered').array).every(
+        (value) => value < 1000000
+      )
+    ).toBe(true);
+    signals.startScan();
+    expect(frames.size).toBe(0);
+    expect(getSweep().visible).toBe(false);
   });
 
   it('keeps nonmatching signals clickable after changing the active category', () => {

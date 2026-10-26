@@ -74,6 +74,51 @@ function createCaptureFixture(src = 'https://example.com/live') {
   };
 }
 
+function createModelFixture() {
+  const fixture = createCaptureFixture(`${window.location.origin}/live.mp3`);
+  fixture.stream.tracks.push({ stop: fixture.stop });
+  const workers: MockWorker[] = [];
+  const worklets: MockWorklet[] = [];
+  class MockWorker {
+    onmessage: ((event: MessageEvent) => void) | null = null;
+    onerror: ((event: ErrorEvent) => void) | null = null;
+    postMessage = vi.fn();
+    terminate = vi.fn();
+    constructor() {
+      workers.push(this);
+    }
+    respond(data: unknown) {
+      this.onmessage?.({ data } as MessageEvent);
+    }
+  }
+  class MockWorklet {
+    connect = vi.fn();
+    disconnect = vi.fn();
+    port = {
+      postMessage: vi.fn(),
+      close: vi.fn(),
+      onmessage: null as ((event: MessageEvent) => void) | null,
+    };
+    constructor() {
+      worklets.push(this);
+    }
+    completeCapture(pcm: Float32Array) {
+      this.port.onmessage?.({ data: { pcm, sampleRate: 48000 } } as MessageEvent);
+    }
+  }
+  Object.assign(AudioContext.prototype, {
+    audioWorklet: { addModule: vi.fn(async () => undefined) },
+    createGain: vi.fn(() => ({ gain: { value: 0 }, connect: vi.fn(), disconnect: vi.fn() })),
+  });
+  const fetchStatus = vi.fn<typeof fetch>(async () =>
+    Response.json({ state: 'ready', name: 'facebook/pe-av-large' })
+  );
+  vi.stubGlobal('fetch', fetchStatus);
+  vi.stubGlobal('Worker', MockWorker);
+  vi.stubGlobal('AudioWorkletNode', MockWorklet);
+  return { ...fixture, workers, worklets, fetchStatus };
+}
+
 describe('audio capture isolation', () => {
   afterEach(() => {
     cleanup();
@@ -123,6 +168,20 @@ describe('audio capture isolation', () => {
     expect(audio.pause).not.toHaveBeenCalled();
     expect(result.current.analysisRef.current.semantic.model).toBeNull();
     expect(result.current.analysisError).toContain('blocks access');
+  });
+
+  it('can analyze CORS-enabled direct playback when captureStream is unavailable', async () => {
+    const fixture = createCaptureFixture();
+    Object.assign(fixture.audio, { crossOrigin: 'anonymous' });
+    fixture.captureStream.mockImplementation(() => {
+      throw new DOMException('Capture unavailable', 'NotSupportedError');
+    });
+    const { result } = renderHook(() => useAudioAnalysis(fixture.audioRef, fixture.station, true));
+    await waitFor(() => expect(result.current.analysisStatus).toBe('analyzing'));
+    expect(fixture.contexts[0].createMediaElementSource).toHaveBeenCalledWith(fixture.audio);
+    expect(fixture.elementSource.connect).toHaveBeenCalledWith(fixture.contexts[0].destination);
+    expect(result.current.analysisError).toBeNull();
+    expect(fixture.audio.pause).not.toHaveBeenCalled();
   });
 
   it('waits for the captured audio track to arrive before initializing the analyser', async () => {
@@ -487,5 +546,130 @@ describe('audio capture isolation', () => {
     expect(stop).toHaveBeenCalledOnce();
     audio.dispatchEvent(new Event('volumechange'));
     expect(resume).toHaveBeenCalledTimes(3);
+  });
+
+  it('rebuilds a crashed recognition worker without replacing or pausing the player', async () => {
+    vi.useFakeTimers();
+    const fixture = createModelFixture();
+    const { result, unmount } = renderHook(() =>
+      useAudioAnalysis(fixture.audioRef, fixture.station, true)
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.modelStatus).toBe('ready');
+    act(() => fixture.workers[0].onerror?.(new ErrorEvent('error')));
+    expect(result.current.modelStatus).toBe('error');
+    expect(fixture.workers[0].terminate).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(2000));
+    expect(fixture.workers).toHaveLength(2);
+    expect(result.current.analysisStatus).toBe('analyzing');
+    expect(fixture.contexts).toHaveLength(1);
+    expect(fixture.audio.pause).not.toHaveBeenCalled();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('recovers when PCM capture never returns instead of remaining permanently busy', async () => {
+    vi.useFakeTimers();
+    const fixture = createModelFixture();
+    const { result, unmount } = renderHook(() =>
+      useAudioAnalysis(fixture.audioRef, fixture.station, true)
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(17000));
+    expect(fixture.worklets).toHaveLength(2);
+    expect(fixture.worklets[0].port.close).toHaveBeenCalledOnce();
+    expect(fixture.worklets[1].port.postMessage).toHaveBeenCalledWith(
+      { type: 'capture', buffer: undefined },
+      []
+    );
+    expect(result.current.analysisStatus).toBe('analyzing');
+    expect(fixture.audio.pause).not.toHaveBeenCalled();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('backs off a busy model while retaining real-time audio analysis', async () => {
+    vi.useFakeTimers();
+    const fixture = createModelFixture();
+    const { result } = renderHook(() => useAudioAnalysis(fixture.audioRef, fixture.station, true));
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    const pcm = new Float32Array(48000 * 6);
+    act(() => {
+      fixture.worklets[0].completeCapture(pcm);
+      fixture.workers[0].respond({ type: 'error', status: 429, pcm });
+    });
+    expect(result.current.modelStatus).toBe('ready');
+    expect(fixture.fetchStatus).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(4999));
+    expect(fixture.worklets[0].port.postMessage).toHaveBeenCalledOnce();
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(fixture.worklets[0].port.postMessage).toHaveBeenCalledTimes(2);
+    expect(result.current.analysisStatus).toBe('analyzing');
+  });
+
+  it('reports a timed-out model status without leaving recognition stuck loading', async () => {
+    vi.useFakeTimers();
+    const fixture = createModelFixture();
+    fixture.fetchStatus
+      .mockResolvedValueOnce(Response.json({ state: 'loading', name: 'facebook/pe-av-large' }))
+      .mockImplementationOnce(
+        (_input, options) =>
+          new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), {
+              once: true,
+            });
+          })
+      );
+    const { result, unmount } = renderHook(() =>
+      useAudioAnalysis(fixture.audioRef, fixture.station, true)
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(result.current.modelStatus).toBe('loading');
+    await act(async () => vi.advanceTimersByTimeAsync(7500));
+    expect(result.current.modelStatus).toBe('offline');
+    expect(result.current.analysisStatus).toBe('analyzing');
+    expect(fixture.audio.pause).not.toHaveBeenCalled();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retries recognition without reconnecting the audible stream', async () => {
+    vi.useFakeTimers();
+    const fixture = createModelFixture();
+    const { result } = renderHook(() => useAudioAnalysis(fixture.audioRef, fixture.station, true));
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    const audio = fixture.audioRef.current;
+    act(() => result.current.retryRecognition());
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(fixture.workers).toHaveLength(2);
+    expect(fixture.workers[0].terminate).toHaveBeenCalledOnce();
+    expect(fixture.audioRef.current).toBe(audio);
+    expect(fixture.contexts).toHaveLength(1);
+    expect(fixture.contexts[0].close).not.toHaveBeenCalled();
+    expect(fixture.audio.pause).not.toHaveBeenCalled();
+    expect(result.current.modelStatus).toBe('ready');
+  });
+
+  it('keeps failed capture retryable when the model service itself remains healthy', async () => {
+    vi.useFakeTimers();
+    const fixture = createModelFixture();
+    const { result, unmount } = renderHook(() =>
+      useAudioAnalysis(fixture.audioRef, fixture.station, true)
+    );
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    for (let attempt = 0; attempt < 4; attempt++) {
+      act(() => fixture.workers[attempt].onerror?.(new ErrorEvent('error')));
+      if (attempt < 3) await act(async () => vi.advanceTimersByTimeAsync((attempt + 1) * 2000));
+    }
+    await act(async () => vi.advanceTimersByTimeAsync(20000));
+    expect(result.current.modelStatus).toBe('error');
+    expect(result.current.analysisStatus).toBe('analyzing');
+    expect(fixture.workers).toHaveLength(4);
+    act(() => result.current.retryRecognition());
+    await act(async () => vi.advanceTimersByTimeAsync(0));
+    expect(fixture.workers).toHaveLength(5);
+    expect(result.current.modelStatus).toBe('ready');
+    expect(fixture.audio.pause).not.toHaveBeenCalled();
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

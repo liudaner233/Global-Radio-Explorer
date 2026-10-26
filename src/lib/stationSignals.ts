@@ -1,6 +1,7 @@
 import {
   BufferAttribute,
   BufferGeometry,
+  Matrix4,
   Mesh,
   Points,
   ShaderMaterial,
@@ -30,6 +31,9 @@ export function createStationSignals(
   let positions = new Float32Array(0);
   let discovered = new Float32Array(0);
   let locations: Vector3[] = [];
+  let scanAngles = new Float32Array(0);
+  let scanAnglesDirty = true;
+  let undiscovered = 0;
   const clock = { value: 0 };
   const still = { value: motion.matches ? 1 : 0 };
   let geometry = new BufferGeometry();
@@ -114,7 +118,7 @@ export function createStationSignals(
       }
     `,
   });
-  const sweepGeometry = new SphereGeometry(globe.getGlobeRadius(), 180, 90);
+  const sweepGeometry = new SphereGeometry(globe.getGlobeRadius(), 96, 48);
   const sweep = new Mesh(sweepGeometry, sweepMaterial);
   sweep.name = 'station-scan';
   sweep.renderOrder = 2;
@@ -124,6 +128,7 @@ export function createStationSignals(
   let elapsed = 0;
   let scanStart = 0;
   let lastTime = 0;
+  let lastUpdate = 0;
   let frame = 0;
   let scanning = false;
   let downX = 0;
@@ -132,6 +137,7 @@ export function createStationSignals(
   const center = new Vector3();
   const cameraPosition = new Vector3();
   const projected = new Vector3();
+  const projection = new Matrix4();
   let surfaceAltitude = -1;
 
   function updateColors() {
@@ -160,12 +166,32 @@ export function createStationSignals(
   }
 
   function updateStations(nextStations: RadioStation[]) {
+    if (
+      geometry.hasAttribute('position') &&
+      nextStations.length === stations.length &&
+      nextStations.every(
+        (station, index) =>
+          getStationIdentity(station) === getStationIdentity(stations[index]) &&
+          station.geo_lat === stations[index].geo_lat &&
+          station.geo_long === stations[index].geo_long
+      )
+    ) {
+      const colorsChanged = nextStations.some(
+        (station, index) => station.tags !== stations[index].tags
+      );
+      stations = nextStations;
+      if (colorsChanged) updateColors();
+      return;
+    }
     const previous = new Map(
       stations.map((station, index) => [getStationIdentity(station), discovered[index]])
     );
     stations = nextStations;
     positions = new Float32Array(stations.length * 3);
     discovered = new Float32Array(stations.length);
+    scanAngles = new Float32Array(stations.length);
+    scanAnglesDirty = true;
+    undiscovered = 0;
     const phases = new Float32Array(stations.length);
     const surface = getSurfaceAltitude(globe.pointOfView().altitude);
     locations = stations.map((station, index) => {
@@ -175,6 +201,7 @@ export function createStationSignals(
       discovered[index] =
         previous.get(getStationIdentity(station)) ??
         (motion.matches ? elapsed - 1 : scanning ? 1000000 : elapsed);
+      if (discovered[index] === 1000000) undiscovered++;
       let hash = 0;
       for (const character of station.stationuuid || station.name)
         hash = (hash * 31 + character.charCodeAt(0)) | 0;
@@ -203,6 +230,7 @@ export function createStationSignals(
   }
 
   function updateSurface() {
+    scanAnglesDirty = true;
     const altitude = getSurfaceAltitude(globe.pointOfView().altitude);
     if (Math.abs(altitude - surfaceAltitude) < 0.0000001) return;
     surfaceAltitude = altitude;
@@ -223,39 +251,59 @@ export function createStationSignals(
     discovered.fill(motion.matches ? elapsed - 1 : 1000000);
     discovery.needsUpdate = true;
     scanning = !motion.matches;
+    undiscovered = scanning ? stations.length : 0;
+    scanAnglesDirty = true;
     sweep.visible = scanning;
     sweepMaterial.uniforms.progress.value = 0;
     sweepMaterial.uniforms.fade.value = 1;
+    lastUpdate = 0;
+  }
+
+  function updateScanAngles() {
+    projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    center.set(0, 0, 0).applyMatrix4(projection);
+    sweepMaterial.uniforms.center.value.set(center.x, center.y);
+    for (let i = 0; i < locations.length; i++) {
+      if (discovered[i] < 1000000) continue;
+      projected.copy(locations[i]).applyMatrix4(projection);
+      scanAngles[i] =
+        (Math.atan2(projected.x - center.x, projected.y - center.y) + Math.PI * 2) % (Math.PI * 2);
+    }
+    scanAnglesDirty = false;
   }
 
   function update(time: number) {
     elapsed += lastTime ? Math.min((time - lastTime) / 1000, 0.05) : 0;
     lastTime = time;
+    frame = requestAnimationFrame(update);
+    if (time - lastUpdate < (scanning ? 1000 / 60 : 1000 / 30)) return;
+    lastUpdate = time;
     clock.value = elapsed;
     material.uniforms.pixelRatio.value = renderer.getPixelRatio();
-    if (motion.matches) settle();
     if (scanning) {
       const age = elapsed - scanStart;
       const progress = Math.min(age / 1.5, 1);
-      center.set(0, 0, 0).project(camera);
-      sweepMaterial.uniforms.center.value.set(center.x, center.y);
+      if (scanAnglesDirty) updateScanAngles();
       sweepMaterial.uniforms.progress.value = progress;
       sweepMaterial.uniforms.fade.value = Math.max(0, 1 - (age - 1.5) / 0.3);
-      for (let i = 0; i < locations.length; i++) {
-        if (discovered[i] < 1000000) continue;
-        projected.copy(locations[i]).project(camera);
-        const x = projected.x - center.x;
-        const y = projected.y - center.y;
-        const angle = (Math.atan2(x, y) + Math.PI * 2) % (Math.PI * 2);
-        if (angle <= progress * Math.PI * 2 || progress === 1) discovered[i] = elapsed;
+      let changed = false;
+      if (undiscovered) {
+        const angle = progress * Math.PI * 2;
+        for (let i = 0; i < locations.length; i++) {
+          if (discovered[i] < 1000000) continue;
+          if (scanAngles[i] <= angle || progress === 1) {
+            discovered[i] = elapsed;
+            undiscovered--;
+            changed = true;
+          }
+        }
       }
-      discovery.needsUpdate = true;
+      if (changed) discovery.needsUpdate = true;
       if (age >= 1.8) {
         scanning = false;
         sweep.visible = false;
       }
     }
-    if (!motion.matches) frame = requestAnimationFrame(update);
   }
 
   function settle() {
@@ -263,15 +311,17 @@ export function createStationSignals(
     discovered.fill(elapsed - 1);
     discovery.needsUpdate = true;
     scanning = false;
+    undiscovered = 0;
     sweep.visible = false;
   }
 
   function resume() {
     cancelAnimationFrame(frame);
     lastTime = 0;
+    lastUpdate = 0;
     still.value = motion.matches ? 1 : 0;
     if (motion.matches) settle();
-    if (!document.hidden) frame = requestAnimationFrame(update);
+    else if (!document.hidden) frame = requestAnimationFrame(update);
   }
 
   function pointerDown(event: PointerEvent) {
@@ -289,19 +339,20 @@ export function createStationSignals(
     pressed = false;
     const bounds = canvas.getBoundingClientRect();
     camera.getWorldPosition(cameraPosition);
-    let nearest = 9;
+    projection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+    const halfWidth = canvas.clientWidth / 2;
+    const halfHeight = canvas.clientHeight / 2;
+    const radiusSquared = globe.getGlobeRadius() ** 2;
+    let nearest = 81;
     let selected = -1;
     for (let i = 0; i < locations.length; i++) {
-      if (
-        discovered[i] > elapsed ||
-        locations[i].dot(cameraPosition) <= globe.getGlobeRadius() ** 2
-      )
-        continue;
-      projected.copy(locations[i]).project(camera);
-      const distance = Math.hypot(
-        ((projected.x + 1) * canvas.clientWidth) / 2 - (event.clientX - bounds.left),
-        ((1 - projected.y) * canvas.clientHeight) / 2 - (event.clientY - bounds.top)
-      );
+      if (discovered[i] > elapsed || locations[i].dot(cameraPosition) <= radiusSquared) continue;
+      projected.copy(locations[i]).applyMatrix4(projection);
+      const x = (projected.x + 1) * halfWidth - pointerX;
+      const y = (1 - projected.y) * halfHeight - pointerY;
+      const distance = x * x + y * y;
       if (distance < nearest) {
         nearest = distance;
         selected = i;
@@ -315,6 +366,7 @@ export function createStationSignals(
   canvas.addEventListener('pointerup', pointerUp);
   document.addEventListener('visibilitychange', resume);
   motion.addEventListener('change', resume);
+  window.addEventListener('resize', updateSurface);
   startScan();
   resume();
   return {
@@ -328,6 +380,7 @@ export function createStationSignals(
       canvas.removeEventListener('pointerup', pointerUp);
       document.removeEventListener('visibilitychange', resume);
       motion.removeEventListener('change', resume);
+      window.removeEventListener('resize', updateSurface);
       globe.controls().removeEventListener('change', updateSurface);
       scene.remove(points, sweep);
       geometry.dispose();

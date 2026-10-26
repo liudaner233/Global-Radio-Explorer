@@ -11,6 +11,7 @@ vi.mock('../lib/audioGateway', () => ({
 class TransportAudio extends EventTarget {
   static instances: TransportAudio[] = [];
   src = '';
+  crossOrigin: string | null = null;
   preload = '';
   volume = 1;
   paused = true;
@@ -49,7 +50,7 @@ describe('safe audio proxy fallback', () => {
     vi.unstubAllGlobals();
   });
 
-  it('creates a fresh native audio for direct fallback without stopping the parent play intent', async () => {
+  it('tries CORS-enabled direct audio after a proxy failure without stopping the parent play intent', async () => {
     const station = createStation();
     const onPlayingChange = vi.fn();
     const { result } = renderHook(() =>
@@ -66,6 +67,7 @@ describe('safe audio proxy fallback', () => {
     expect(TransportAudio.instances).toHaveLength(2);
     const nativeAudio = TransportAudio.instances[1];
     expect(nativeAudio.src).toBe(station.url_resolved);
+    expect(nativeAudio.crossOrigin).toBe('anonymous');
     expect(proxyAudio.pause).toHaveBeenCalled();
     expect(result.current.audioRef.current).toBe(nativeAudio);
     expect(result.current.playbackStatus).toBe('playing');
@@ -85,9 +87,38 @@ describe('safe audio proxy fallback', () => {
       await Promise.resolve();
     });
     act(() => TransportAudio.instances[1].dispatchEvent(new Event('error')));
-    expect(TransportAudio.instances).toHaveLength(2);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(TransportAudio.instances).toHaveLength(3);
+    expect(TransportAudio.instances[2].crossOrigin).toBeNull();
+    expect(onPlayingChange).not.toHaveBeenCalled();
+    act(() => TransportAudio.instances[2].dispatchEvent(new Event('error')));
+    expect(TransportAudio.instances).toHaveLength(3);
     expect(result.current.playbackStatus).toBe('error');
     expect(onPlayingChange).toHaveBeenCalledWith(false);
+  });
+
+  it('retains native listening when a station rejects CORS-enabled playback', async () => {
+    const station = createStation();
+    vi.mocked(getAudioPlaybackSource).mockReturnValue(station.url_resolved);
+    const onPlayingChange = vi.fn();
+    const { result } = renderHook(() =>
+      useAudioPlayer({ station, isPlaying: true, onPlayingChange })
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(TransportAudio.instances[0].crossOrigin).toBe('anonymous');
+    act(() => TransportAudio.instances[0].dispatchEvent(new Event('error')));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(TransportAudio.instances).toHaveLength(2);
+    expect(TransportAudio.instances[1].crossOrigin).toBeNull();
+    expect(result.current.playbackStatus).toBe('playing');
+    expect(result.current.playbackError).toBeNull();
+    expect(onPlayingChange).not.toHaveBeenCalled();
   });
 
   it('reconnects a direct fallback through the gateway when analysis is explicitly retried', async () => {
@@ -127,6 +158,34 @@ describe('safe audio proxy fallback', () => {
       cleanup();
       vi.useRealTimers();
     }
+  });
+
+  it('releases a paused proxy stream and creates a fresh capture source before resuming', async () => {
+    const station = createStation();
+    const { result, rerender } = renderHook(
+      ({ playing }) => useAudioPlayer({ station, isPlaying: playing }),
+      { initialProps: { playing: true } }
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const original = TransportAudio.instances[0];
+    rerender({ playing: false });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(original.removeAttribute).toHaveBeenCalledWith('src');
+    expect(original.load).toHaveBeenCalled();
+    expect(TransportAudio.instances).toHaveLength(2);
+    expect(result.current.audioGeneration).toBe(1);
+    expect(TransportAudio.instances[1].play).not.toHaveBeenCalled();
+    rerender({ playing: true });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(TransportAudio.instances[1].play).toHaveBeenCalledOnce();
+    expect(result.current.playbackStatus).toBe('playing');
+    expect(TransportAudio.instances).toHaveLength(2);
   });
 
   it('retries the proxy on later playback after a temporary direct fallback expires', async () => {

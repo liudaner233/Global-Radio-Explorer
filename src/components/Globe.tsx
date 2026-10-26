@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useReducedMotion } from 'motion/react';
 import { DoubleSide, MeshBasicMaterial } from 'three';
 import { createPortal } from 'react-dom';
@@ -26,6 +26,8 @@ import GlobePicker from './GlobePicker';
 import { useNearbyStations } from '../hooks/useNearbyStations';
 import type { NearbyStation } from '../lib/nearbyStations';
 import { getStationSignalGenre, type StationGenre } from '../lib/stationGenres';
+import { useCountryInteraction } from '../hooks/useCountryInteraction';
+import { useCountryBoundaries } from '../hooks/useCountryBoundaries';
 
 interface GlobeProps {
   stations: RadioStation[];
@@ -86,6 +88,7 @@ export default function Globe({
       opacity: 0,
       depthWrite: false,
       side: DoubleSide,
+      visible: false,
     }),
     highlight: new MeshBasicMaterial({
       color: '#60a5fa',
@@ -103,10 +106,24 @@ export default function Globe({
     [countryMaterials]
   );
   const { countries, error } = useCountries();
+  useCountryBoundaries(ref, ready, countries, detailed);
   const [hoveredCountry, setHoveredCountry] = useState<CountryFeature | null>(null);
   const [selectedCountry, setSelectedCountry] = useState<CountryFeature | null>(null);
   const lastSignalPick = useRef<Event | null>(null);
   const highlightedCountryKey = getCountryId(hoveredCountry ?? selectedCountry);
+  const highlightedCountries = useMemo(
+    () => (hoveredCountry ? [hoveredCountry] : selectedCountry ? [selectedCountry] : []),
+    [hoveredCountry, selectedCountry]
+  );
+  const hoverCountry = useCallback((country: CountryFeature | null) => {
+    setHoveredCountry((previous) =>
+      getCountryId(previous) === getCountryId(country) ? previous : country
+    );
+  }, []);
+  const selectCountry = useCallback((country: CountryFeature, event: PointerEvent) => {
+    if (event !== lastSignalPick.current) setSelectedCountry(country);
+  }, []);
+  useCountryInteraction(ref, ready, countries, hoverCountry, selectCountry);
   const geoStations = useMapStations(ready, stations, selectedStation);
   useEffect(() => {
     onMapStationsChange?.(geoStations);
@@ -159,7 +176,8 @@ export default function Globe({
         atmosphereColor="#60a5fa"
         atmosphereAltitude={0.12}
         onGlobeReady={onReady}
-        polygonsData={countries}
+        enablePointerInteraction={false}
+        polygonsData={highlightedCountries}
         polygonCapMaterial={(country: CountryFeature) => {
           const currentKey = getCountryId(country);
           return currentKey === highlightedCountryKey

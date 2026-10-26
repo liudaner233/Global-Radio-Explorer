@@ -43,7 +43,7 @@ export default function AudioVisualizer({
   useEffect(() => {
     optionsRef.current = { isPlaying, gain, hasJourney };
     wakeRef.current?.();
-  });
+  }, [isPlaying, gain, hasJourney]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -52,7 +52,10 @@ export default function AudioVisualizer({
 
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const mobile = window.matchMedia('(pointer: coarse)');
+    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+    const limitedDevice = navigator.hardwareConcurrency <= 4 || memory <= 4;
     const colors = new Float32Array(PALETTES.neutral);
+    const gradientColors = new Int16Array(9).fill(-1);
     let width = 0;
     let height = 0;
     let count = 0;
@@ -63,21 +66,32 @@ export default function AudioVisualizer({
     let previousTime = 0;
     let gradientTime = 0;
     let visibleEnergy = 0;
+    let spectrumStarts = new Uint16Array(0);
+    let spectrumEnds = new Uint16Array(0);
+    let spectrumLength = 0;
+    let pixelRatio = 0;
 
     function updateGradient(time: number) {
       if (time - gradientTime < 100 && gradient) return;
       gradientTime = time;
+      let changed = !gradient;
+      for (let index = 0; index < colors.length; index++) {
+        const color = Math.round(colors[index]);
+        if (color !== gradientColors[index]) changed = true;
+        gradientColors[index] = color;
+      }
+      if (!changed) return;
       gradient = context!.createLinearGradient(0, 0, width, 0);
       for (let index = 0; index < 3; index++) {
         const offset = index * 3;
         gradient.addColorStop(
           index / 2,
           'rgb(' +
-            Math.round(colors[offset]) +
+            gradientColors[offset] +
             ',' +
-            Math.round(colors[offset + 1]) +
+            gradientColors[offset + 1] +
             ',' +
-            Math.round(colors[offset + 2]) +
+            gradientColors[offset + 2] +
             ')'
         );
       }
@@ -91,6 +105,16 @@ export default function AudioVisualizer({
         options.isPlaying && options.gain > 0 && snapshot.status === 'analyzing' && fresh;
       const audibleGain = active ? Math.sqrt(clamp(options.gain)) : 0;
       const targetEnergy = active ? clamp(Math.sqrt(snapshot.rms * 5)) : 0;
+      if (snapshot.spectrum.length !== spectrumLength) {
+        spectrumLength = snapshot.spectrum.length;
+        for (let index = 0; index < count; index++) {
+          spectrumStarts[index] = Math.floor((index * spectrumLength) / count);
+          spectrumEnds[index] = Math.min(
+            spectrumLength,
+            Math.max(spectrumStarts[index] + 1, Math.floor(((index + 1) * spectrumLength) / count))
+          );
+        }
+      }
       const speech =
         snapshot.semantic.kind === 'speech' &&
         snapshot.semantic.confidence >= AUDIO_CONTENT_CONFIDENCE;
@@ -102,6 +126,13 @@ export default function AudioVisualizer({
       const intense = confident && snapshot.semantic.character === 'intense';
       const attack = ambient ? 0.12 : gentle ? 0.09 : speech ? 0.075 : intense ? 0.025 : 0.035;
       const release = ambient ? 0.55 : gentle ? 0.42 : speech ? 0.32 : intense ? 0.14 : 0.18;
+      const attackEase = 1 - Math.exp(-dt / attack);
+      const releaseEase = 1 - Math.exp(-dt / release);
+      const response =
+        audibleGain *
+        (0.4 + targetEnergy * 0.6) *
+        (gentle ? 0.86 : intense ? 1.1 : 1) *
+        (1 + (active ? clamp(snapshot.onset) * 0.22 : 0));
       visibleEnergy +=
         (targetEnergy - visibleEnergy) * (1 - Math.exp(-dt / (gentle ? 0.38 : 0.22)));
 
@@ -123,23 +154,15 @@ export default function AudioVisualizer({
       context!.fillStyle = gradient;
       context!.beginPath();
       for (let index = 0; index < count; index++) {
-        const start = Math.floor((index * snapshot.spectrum.length) / count);
-        const end = Math.max(
-          start + 1,
-          Math.floor(((index + 1) * snapshot.spectrum.length) / count)
-        );
+        const start = spectrumStarts[index];
+        const end = spectrumEnds[index];
         let frequency = 0;
         if (active) {
           for (let bin = start; bin < end; bin++) frequency += clamp(snapshot.spectrum[bin]);
-          frequency /= end - start;
+          frequency /= Math.max(1, end - start);
         }
-        const target =
-          Math.pow(frequency, 0.78) *
-          audibleGain *
-          (0.4 + targetEnergy * 0.6) *
-          (gentle ? 0.86 : intense ? 1.1 : 1) *
-          (1 + (active ? clamp(snapshot.onset) * 0.22 : 0));
-        const easing = 1 - Math.exp(-dt / (target > amplitudes[index] ? attack : release));
+        const target = Math.pow(frequency, 0.78) * response;
+        const easing = target > amplitudes[index] ? attackEase : releaseEase;
         amplitudes[index] += (target - amplitudes[index]) * easing;
         if (amplitudes[index] > 0.004) settling = true;
         const barHeight = 1.7 + clamp(amplitudes[index]) * maxHeight;
@@ -199,14 +222,20 @@ export default function AudioVisualizer({
     function animate(time: number) {
       frame = 0;
       timer = 0;
-      if (document.hidden) return;
+      if (document.hidden || width === 0 || height === 0) return;
+      const interval = 1000 / (mobile.matches || limitedDevice ? 30 : 45);
+      if (previousTime && time - previousTime < interval - 0.5 && !motion.matches) {
+        schedule();
+        return;
+      }
       const dt = previousTime ? Math.min((time - previousTime) / 1_000, 0.3) : 1 / 60;
       previousTime = time;
       const settling = draw(time, dt);
       const options = optionsRef.current;
       if (options.isPlaying && options.gain > 0) {
-        const available = analysis.current.status === 'analyzing';
-        schedule(motion.matches ? 200 : !available ? 250 : mobile.matches ? 16 : 0);
+        const available =
+          analysis.current.status === 'analyzing' && time - analysis.current.updatedAt < 1_500;
+        schedule(motion.matches ? 200 : !available ? 250 : 0);
       } else if (settling) {
         schedule(motion.matches ? 200 : 0);
       } else {
@@ -225,15 +254,22 @@ export default function AudioVisualizer({
 
     function resize() {
       const bounds = canvas!.getBoundingClientRect();
+      const ratio = Math.min(window.devicePixelRatio || 1, limitedDevice ? 1.25 : 1.5);
+      if (bounds.width === width && bounds.height === height && ratio === pixelRatio && count)
+        return;
       width = bounds.width;
       height = bounds.height;
-      const ratio = Math.min(window.devicePixelRatio || 1, mobile.matches ? 1.5 : 2);
+      pixelRatio = ratio;
       canvas!.width = Math.round(width * ratio);
       canvas!.height = Math.round(height * ratio);
       context!.setTransform(ratio, 0, 0, ratio, 0, 0);
       count = Math.max(12, Math.min(56, Math.floor((width - 84) / 12)));
       amplitudes = new Float32Array(count);
+      spectrumStarts = new Uint16Array(count);
+      spectrumEnds = new Uint16Array(count);
+      spectrumLength = 0;
       gradientTime = -100;
+      gradientColors.fill(-1);
       updateGradient(performance.now());
       wake();
     }

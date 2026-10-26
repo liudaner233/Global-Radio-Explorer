@@ -350,6 +350,31 @@ test('client disconnect destroys the source and releases its connection allowanc
   await second.body.cancel();
 });
 
+test('allows overlapping browser streams within the per-client limit and rejects excess connections', async (t) => {
+  const controllers = [];
+  t.after(() => controllers.forEach((controller) => controller.abort()));
+  const { base } = await fixture(t, {
+    openRequest: async (url) => {
+      if (url.hostname.endsWith('radio-browser.info'))
+        return upstream(200, {}, JSON.stringify([station]));
+      const source = new Readable({ read() {} });
+      source.statusCode = 200;
+      source.headers = { 'content-type': 'audio/mpeg' };
+      source.push(Buffer.from('live frame'));
+      return source;
+    },
+  });
+  for (let index = 0; index < 4; index++) {
+    const controller = new AbortController();
+    controllers.push(controller);
+    const response = await fetch(`${base}/api/audio/stream/${stationId}`, {
+      signal: controller.signal,
+    });
+    assert.equal(response.status, 200);
+  }
+  assert.equal((await fetch(`${base}/api/audio/stream/${stationId}`)).status, 429);
+});
+
 test('rejects oversized chunked PCM without buffering the rest of its body', async (t) => {
   const { base } = await fixture(t);
   const status = await new Promise((resolveStatus, reject) => {

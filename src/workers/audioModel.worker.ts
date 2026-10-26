@@ -1,9 +1,11 @@
 import { parseAudioSemantic } from '../lib/audioAnalysis';
 
 let pending: AbortController | null = null;
+let cancelled = false;
 
 self.onmessage = async (event: MessageEvent) => {
   if (event.data.type === 'cancel') {
+    cancelled = true;
     pending?.abort();
     return;
   }
@@ -11,7 +13,9 @@ self.onmessage = async (event: MessageEvent) => {
   const pcm = event.data.pcm as Float32Array;
   const sampleRate = Number(event.data.sampleRate);
   pending = new AbortController();
+  cancelled = false;
   const timeout = setTimeout(() => pending?.abort(), 90000);
+  let status = 0;
   try {
     const response = await fetch('/api/audio/analyze', {
       method: 'POST',
@@ -20,12 +24,13 @@ self.onmessage = async (event: MessageEvent) => {
       signal: pending.signal,
       credentials: 'same-origin',
     });
+    status = response.status;
     if (!response.ok) throw new Error(`Audio model ${response.status}`);
     const semantic = parseAudioSemantic(await response.json(), performance.now());
     if (!semantic) throw new Error('Invalid audio analysis');
     self.postMessage({ type: 'result', semantic, pcm }, { transfer: [pcm.buffer] });
   } catch {
-    self.postMessage({ type: 'error', pcm }, { transfer: [pcm.buffer] });
+    self.postMessage({ type: 'error', pcm, status, cancelled }, { transfer: [pcm.buffer] });
   } finally {
     clearTimeout(timeout);
     pending = null;

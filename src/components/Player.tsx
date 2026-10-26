@@ -67,28 +67,37 @@ export default function Player({
     onListeningProgress,
     gain: gain * sleep.fadeFactor,
   });
-  const { analysisRef, modelStatus, analysisStatus, analysisError, description } = useAudioAnalysis(
+  const {
+    analysisRef,
+    modelStatus,
+    recognitionStatus,
+    analysisStatus,
+    analysisError,
+    description,
+    retryRecognition,
+  } = useAudioAnalysis(
     audioRef,
     station,
     isPlaying && playbackStatus === 'playing',
     audioGeneration
   );
   const audiblePlaying = isPlaying && playbackStatus === 'playing' && !isMuted && volume > 0;
-  const analysisLabel = !isPlaying
-    ? 'Paused'
-    : isMuted || volume === 0
-      ? 'Muted'
-      : playbackStatus === 'loading'
-        ? 'Connecting to signal'
-        : analysisStatus === 'unavailable'
-          ? 'Audio analysis unavailable'
-          : analysisStatus === 'analyzing'
-            ? modelStatus === 'ready' && description
-              ? `PE-AV · ${description}`
-              : modelStatus === 'loading'
-                ? 'Live spectrum · Model loading'
-                : 'Live spectrum'
-            : 'Waiting for signal';
+  let analysisLabel = 'Waiting for signal';
+  if (!isPlaying) analysisLabel = 'Paused';
+  else if (isMuted || volume === 0) analysisLabel = 'Muted';
+  else if (playbackStatus === 'loading') analysisLabel = 'Connecting to signal';
+  else if (analysisStatus === 'unavailable') analysisLabel = 'Audio analysis unavailable';
+  else if (analysisStatus === 'analyzing') {
+    analysisLabel = 'Live spectrum';
+    if (modelStatus === 'ready' && description) analysisLabel = `PE-AV · ${description}`;
+    else if (modelStatus === 'loading') analysisLabel = 'Live spectrum · Model loading';
+    else if (modelStatus === 'error') analysisLabel = 'Live spectrum · Recognition retrying';
+    else if (modelStatus === 'ready') {
+      if (recognitionStatus === 'analyzing') analysisLabel = 'Live spectrum · Recognizing content';
+      else if (recognitionStatus === 'sampling') analysisLabel = 'Live spectrum · Sampling signal';
+      else if (recognitionStatus === 'retrying') analysisLabel = 'Live spectrum · Recognition busy';
+    }
+  }
   useMediaSession(
     station,
     isPlaying,
@@ -207,13 +216,20 @@ export default function Player({
             >
               {analysisLabel}
             </p>
-            {analysisStatus === 'unavailable' && isPlaying && (
+            {(analysisStatus === 'unavailable' || modelStatus === 'error') && isPlaying && (
               <button
                 type="button"
                 aria-label="Retry audio analysis"
                 aria-busy={isRetryingAnalysis}
-                title="Reconnect this station and retry audio analysis"
-                onClick={() => void retryAudioAnalysis()}
+                title={
+                  analysisStatus === 'analyzing'
+                    ? 'Retry content recognition'
+                    : 'Reconnect this station and retry audio analysis'
+                }
+                onClick={() => {
+                  if (analysisStatus === 'analyzing') retryRecognition();
+                  else void retryAudioAnalysis();
+                }}
                 disabled={isRetryingAnalysis}
                 className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[10px] text-cyan-200/65 transition-colors hover:bg-white/5 hover:text-cyan-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-cyan-300 disabled:opacity-40"
               >

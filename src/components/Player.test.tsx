@@ -113,9 +113,15 @@ describe('Player', () => {
       await act(async () => {
         await Promise.resolve();
       });
-      act(() => {
+      await act(async () => {
         audioInstances[0].dispatchEvent(new Event(event));
+        await Promise.resolve();
       });
+      if (event === 'error') {
+        expect(onPlayingChange).not.toHaveBeenCalled();
+        expect(audioInstances[1].crossOrigin).toBeNull();
+        act(() => audioInstances[1].dispatchEvent(new Event('error')));
+      }
       expect(onPlayingChange).toHaveBeenCalledWith(false);
       if (event === 'error')
         expect(screen.getByText(/stream is currently unavailable/i)).toBeInTheDocument();

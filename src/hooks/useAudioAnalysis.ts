@@ -28,7 +28,11 @@ export function useAudioAnalysis(
   const analysisRef = useRef<AudioAnalysisFrame>(analysis);
   const playingRef = useRef(isPlaying);
   const wakeRef = useRef<(() => void) | null>(null);
+  const retryRef = useRef<(() => void) | null>(null);
   const [modelStatus, setModelStatus] = useState<ModelStatus>('offline');
+  const [recognitionStatus, setRecognitionStatus] = useState<
+    'idle' | 'sampling' | 'analyzing' | 'retrying'
+  >('idle');
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'unavailable'>(
     'idle'
   );
@@ -50,6 +54,7 @@ export function useAudioAnalysis(
     setDescription(null);
     setAnalysisError(null);
     setModelStatus('offline');
+    setRecognitionStatus('idle');
     if (!audio || !streamUrl) return;
 
     let disposed = false;
@@ -64,6 +69,11 @@ export function useAudioAnalysis(
     let frame = 0;
     let modelTimer = 0;
     let captureTimer = 0;
+    let captureDeadline = 0;
+    let recoveryTimer = 0;
+    let captureModuleLoaded = false;
+    let enablingCapture = false;
+    let captureFailures = 0;
     let modelReady = false;
     let capturing = false;
     let inferencePending = false;
@@ -142,10 +152,43 @@ export function useAudioAnalysis(
       )
         return;
       capturing = true;
+      setRecognitionStatus('sampling');
       worklet.port.postMessage(
         { type: 'capture', buffer: pcm },
         pcm ? [pcm.buffer as ArrayBuffer] : []
       );
+      clearTimeout(captureDeadline);
+      captureDeadline = window.setTimeout(recoverModelCapture, 15000);
+    }
+
+    function releaseModelCapture() {
+      clearTimeout(captureDeadline);
+      clearTimeout(captureTimer);
+      capturing = false;
+      inferencePending = false;
+      worker?.terminate();
+      worker = null;
+      if (worklet) {
+        analyser?.disconnect(worklet);
+        worklet.disconnect();
+        worklet.port.close();
+        worklet = null;
+      }
+      silence?.disconnect();
+      silence = null;
+    }
+
+    function recoverModelCapture() {
+      if (disposed) return;
+      releaseModelCapture();
+      modelReady = false;
+      setModelStatus('error');
+      setRecognitionStatus('retrying');
+      setDescription(null);
+      data.semantic = createAudioAnalysis().semantic;
+      clearTimeout(recoveryTimer);
+      if (++captureFailures <= 3 && isActive())
+        recoveryTimer = window.setTimeout(enableModelCapture, captureFailures * 2000);
     }
 
     async function checkModel() {
@@ -161,19 +204,23 @@ export function useAudioAnalysis(
           throw new Error('Model offline');
         const result = await response.json();
         if (disposed || request.signal.aborted) return;
-        modelReady = result.state === 'ready' && result.name === 'facebook/pe-av-large';
+        const captureExhausted = captureFailures > 3;
+        modelReady =
+          !captureExhausted && result.state === 'ready' && result.name === 'facebook/pe-av-large';
         setModelStatus(
-          modelReady
-            ? 'ready'
-            : result.state === 'loading'
-              ? 'loading'
-              : result.state === 'error'
-                ? 'error'
-                : 'offline'
+          captureExhausted
+            ? 'error'
+            : modelReady
+              ? 'ready'
+              : result.state === 'loading'
+                ? 'loading'
+                : result.state === 'error'
+                  ? 'error'
+                  : 'offline'
         );
         if (modelReady) requestCapture();
       } catch {
-        if (!disposed && !request.signal.aborted) {
+        if (!disposed && isActive()) {
           modelReady = false;
           setModelStatus('offline');
         }
@@ -184,14 +231,21 @@ export function useAudioAnalysis(
     }
 
     async function enableModelCapture() {
-      if (!context?.audioWorklet || disposed) return;
+      if (!context?.audioWorklet || disposed || enablingCapture || worklet) return;
+      enablingCapture = true;
       try {
-        await context.audioWorklet.addModule(pcmCaptureUrl);
+        if (!captureModuleLoaded) {
+          await context.audioWorklet.addModule(pcmCaptureUrl);
+          captureModuleLoaded = true;
+        }
         if (disposed || !context || !analyser) return;
         worker = new Worker(new URL('../workers/audioModel.worker.ts', import.meta.url), {
           type: 'module',
         });
         worklet = new AudioWorkletNode(context, 'radio-pcm-capture');
+        worklet.onprocessorerror = recoverModelCapture;
+        worker.onerror = recoverModelCapture;
+        worker.onmessageerror = recoverModelCapture;
         silence = context.createGain();
         silence.gain.value = 0;
         analyser.connect(worklet);
@@ -199,8 +253,10 @@ export function useAudioAnalysis(
         silence.connect(context.destination);
         worklet.port.onmessage = ({ data: message }) => {
           capturing = false;
+          clearTimeout(captureDeadline);
           if (!isActive() || !worker || !modelReady) return;
           inferencePending = true;
+          setRecognitionStatus('analyzing');
           worker.postMessage(
             { type: 'analyze', pcm: message.pcm, sampleRate: message.sampleRate },
             [message.pcm.buffer]
@@ -210,6 +266,8 @@ export function useAudioAnalysis(
           inferencePending = false;
           if (disposed) return;
           if (message.type === 'result' && isActive()) {
+            setRecognitionStatus('idle');
+            captureFailures = 0;
             const semantic = parseAudioSemantic(message.semantic, performance.now());
             if (semantic) {
               data.semantic = semantic;
@@ -230,19 +288,27 @@ export function useAudioAnalysis(
                 setDescription(`${kind}${character}`);
               } else setDescription(null);
             }
-          } else if (message.type === 'error') {
+          } else if (message.type === 'error' && message.status !== 429 && !message.cancelled) {
+            setRecognitionStatus('retrying');
             modelReady = false;
             setModelStatus('error');
             data.semantic = createAudioAnalysis().semantic;
             setDescription(null);
             if (isActive()) void checkModel();
+          } else if (message.status === 429) {
+            setRecognitionStatus('retrying');
           }
           clearTimeout(captureTimer);
-          captureTimer = window.setTimeout(() => requestCapture(message.pcm), 1800);
+          captureTimer = window.setTimeout(
+            () => requestCapture(message.pcm),
+            message.status === 429 ? 5000 : 1800
+          );
         };
         void checkModel();
       } catch {
-        if (!disposed) setModelStatus('error');
+        if (!disposed) recoverModelCapture();
+      } finally {
+        enablingCapture = false;
       }
     }
 
@@ -261,6 +327,7 @@ export function useAudioAnalysis(
           throw new DOMException('Audio analysis unsupported', 'NotSupportedError');
         const currentUrl = new URL(audio!.currentSrc || audio!.src, window.location.href);
         const sameOrigin = currentUrl.origin === window.location.origin;
+        const readableSource = sameOrigin || audio!.crossOrigin === 'anonymous';
         const captureStream = audio!.captureStream || audio!.mozCaptureStream;
         let useElementSource = !captureStream;
         if (captureStream) {
@@ -274,7 +341,7 @@ export function useAudioAnalysis(
               return;
             }
             if (!isActive()) return;
-            if (!sameOrigin) throw error;
+            if (!readableSource) throw error;
             useElementSource = true;
           }
         }
@@ -282,7 +349,7 @@ export function useAudioAnalysis(
           stopCapture();
           return;
         }
-        if (useElementSource && !sameOrigin)
+        if (useElementSource && !readableSource)
           throw new DOMException('Cross-origin audio capture is blocked', 'SecurityError');
         context = new AudioContext({ sampleRate: 48000 });
         await context.resume();
@@ -355,7 +422,9 @@ export function useAudioAnalysis(
               requestCapture();
             })
             .catch(() => undefined);
-          if (!modelReady) void checkModel();
+          if (!worklet && !enablingCapture && context.audioWorklet && captureFailures <= 3)
+            void enableModelCapture();
+          else if (!modelReady) void checkModel();
         } else void start();
       } else {
         cancelTrackWait?.();
@@ -363,6 +432,9 @@ export function useAudioAnalysis(
         data.status = data.status === 'unavailable' ? 'unavailable' : 'idle';
         worklet?.port.postMessage({ type: 'stop' });
         capturing = false;
+        setRecognitionStatus('idle');
+        clearTimeout(captureDeadline);
+        clearTimeout(recoveryTimer);
         worker?.postMessage({ type: 'cancel' });
         statusRequest?.abort();
         clearTimeout(modelTimer);
@@ -379,6 +451,15 @@ export function useAudioAnalysis(
     }
 
     wakeRef.current = wake;
+    retryRef.current = () => {
+      captureFailures = 0;
+      clearTimeout(recoveryTimer);
+      releaseModelCapture();
+      if (isActive()) {
+        setModelStatus('loading');
+        void enableModelCapture();
+      }
+    };
     audio.addEventListener('playing', wake);
     audio.addEventListener('volumechange', wake);
     document.addEventListener('visibilitychange', wake);
@@ -389,9 +470,12 @@ export function useAudioAnalysis(
       disposed = true;
       cancelTrackWait?.();
       wakeRef.current = null;
+      retryRef.current = null;
       cancelAnimationFrame(frame);
       clearTimeout(modelTimer);
       clearTimeout(captureTimer);
+      clearTimeout(captureDeadline);
+      clearTimeout(recoveryTimer);
       statusRequest?.abort();
       worker?.terminate();
       worklet?.disconnect();
@@ -408,5 +492,13 @@ export function useAudioAnalysis(
     };
   }, [audioRef, identity, streamUrl, audioGeneration]);
 
-  return { analysisRef, modelStatus, analysisStatus, description, analysisError };
+  return {
+    analysisRef,
+    modelStatus,
+    recognitionStatus,
+    analysisStatus,
+    description,
+    analysisError,
+    retryRecognition: () => retryRef.current?.(),
+  };
 }
